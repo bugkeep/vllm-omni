@@ -35,6 +35,9 @@ def test_import_order_preserves_operation_identity(legacy_first: bool) -> None:
         assert registered is torch.ops.vllm_omni.fused_qk_norm_rope.default
         assert canonical._fused_qk_norm_rope_impl.__module__ == canonical.__name__
         assert canonical._fused_qk_norm_rope_fake.__module__ == canonical.__name__
+        compat = importlib.import_module(legacy)
+        assert compat.fused_qk_norm_rope_min_tokens is canonical.fused_qk_norm_rope_min_tokens
+        assert compat._fused_cuda_supported is canonical._fused_cuda_supported
     """)
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -83,7 +86,8 @@ def test_public_entry_preserves_invalid_input_error() -> None:
         )
 
 
-def test_registered_fake_preserves_gqa_metadata() -> None:
+@pytest.mark.parametrize("interleaved", [False, True])
+def test_registered_fake_preserves_gqa_metadata(interleaved: bool) -> None:
     from torch._subclasses.fake_tensor import FakeTensorMode
 
     from vllm_omni.diffusion.layers.ops import fused_qk_norm_rope  # noqa: F401
@@ -91,7 +95,7 @@ def test_registered_fake_preserves_gqa_metadata() -> None:
     with FakeTensorMode():
         q, k = torch.empty(7, 3, 16), torch.empty(7, 1, 16)
         weight, table = torch.empty(16), torch.empty(7, 12)
-        outputs = torch.ops.vllm_omni.fused_qk_norm_rope(q, k, weight, weight, table, 1e-5, 16, 12)
+        outputs = torch.ops.vllm_omni.fused_qk_norm_rope(q, k, weight, weight, table, 1e-5, 16, 12, interleaved)
         for output, source in zip(outputs, (q, k)):
             assert output.shape == source.shape
             assert output.dtype == source.dtype
